@@ -3,8 +3,9 @@
 [![CI](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12+-3776AB)
 ![Redis](https://img.shields.io/badge/Redis_8-vector_search-DC382D)
+![LLM](https://img.shields.io/badge/LLM-Grok_%7C_Gemini-000000)
 
-Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Gemini) y, si ya se respondió
+Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Grok de xAI, o Gemini) y, si ya se respondió
 una **semánticamente equivalente**, devuelve la respuesta guardada en Redis en milisegundos en lugar
 de volver a pagar la llamada.
 
@@ -30,7 +31,7 @@ SemanticCacheMiddleware (ASGI puro)
   4. KNN 3 en índice HNSW COSINE de Redis
        └─ similitud ≥ 0.95 y mismos números/IDs ─────────────────────► HIT  (~15-30 ms)
   5. ¿la misma consulta ya está en vuelo? ── espera su respuesta ─────► HIT  (single-flight)
-  6. si no: llama a Gemini, guarda la respuesta 2xx con TTL ──────────► MISS (~1-3 s)
+  6. si no: llama a Grok, guarda la respuesta 2xx con TTL ────────────► MISS (~1-3 s)
 ```
 
 Cada respuesta indica qué pasó: `X-Cache: HIT|MISS`, `X-Cache-Similarity`, `X-Cache-Matched-Query`,
@@ -39,7 +40,7 @@ Cada respuesta indica qué pasó: `X-Cache: HIT|MISS`, `X-Cache-Similarity`, `X-
 ## Puesta en marcha
 
 ```bash
-cp .env.example .env            # añade GEMINI_API_KEY (sin ella se usa un LLM simulado)
+cp .env.example .env            # añade XAI_API_KEY (sin ella se usa un LLM simulado)
 docker compose up --build       # o: podman compose up --build
 ```
 
@@ -48,7 +49,7 @@ docker compose up --build       # o: podman compose up --build
 - Métricas: http://localhost:8000/stats (JSON) y http://localhost:8000/metrics (Prometheus)
 
 La imagen ya incluye el modelo de embeddings, así que arranca en segundos y no necesita red
-salvo para llamar a Gemini.
+salvo para llamar al LLM.
 
 ## Decisiones y aprendizajes
 
@@ -99,7 +100,7 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 
 | Método | Ruta | |
 |---|---|---|
-| `POST` | `/ask` | `{"query": "..."}` → respuesta de Gemini, cacheada |
+| `POST` | `/ask` | `{"query": "..."}` → respuesta del LLM, cacheada |
 | `GET` | `/stats` | tasa de aciertos, latencias, tokens y USD ahorrados |
 | `DELETE` | `/stats` | reinicia las métricas |
 | `DELETE` | `/cache?path=/ask` | invalida una ruta para el tenant de la petición (sin `path`: todo) |
@@ -110,7 +111,9 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 
 | Variable | Por defecto | |
 |---|---|---|
-| `GEMINI_API_KEY` | – | sin ella se usa el backend simulado |
+| `XAI_API_KEY` | – | Grok (xAI); tiene prioridad sobre Gemini |
+| `SEMCACHE_XAI_MODEL` | `grok-4.3` | |
+| `GEMINI_API_KEY` | – | alternativa; sin ninguna clave se usa el backend simulado |
 | `SEMCACHE_GEMINI_MODEL` | `gemini-2.5-flash` | |
 | `SEMCACHE_SIMILARITY_THRESHOLD` | `0.95` | |
 | `SEMCACHE_TTL_SECONDS` | `3600` | 0 = sin expiración |
@@ -118,7 +121,7 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 | `SEMCACHE_CACHED_PATHS` | `["/ask"]` | rutas interceptadas |
 | `SEMCACHE_TENANT_HEADER` | `x-tenant-id` | |
 | `SEMCACHE_ENABLED` | `true` | `false` para medir la línea base |
-| `SEMCACHE_PRICE_INPUT_PER_MTOK` / `_OUTPUT_` | `0.30` / `2.50` | USD por millón de tokens, para estimar el ahorro |
+| `SEMCACHE_PRICE_INPUT_PER_MTOK` / `_OUTPUT_` | `1.25` / `2.50` | USD por millón de tokens (tarifa de grok-4.3), para estimar el ahorro |
 
 ## Desarrollo
 
@@ -126,7 +129,7 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose up -d redis
 
-.venv/bin/pytest                    # 65 tests: middleware, modelo real e integración con Redis
+.venv/bin/pytest                    # 71 tests: middleware, LLM, modelo real e integración con Redis
 .venv/bin/ruff check . && .venv/bin/mypy
 .venv/bin/uvicorn app.main:create_app --factory --reload
 ```
@@ -138,7 +141,7 @@ locust -f loadtest/locustfile.py --host http://localhost:8000 --headless -u 50 -
 ```
 
 El tráfico simulado es un 90 % de preguntas conocidas (con variantes de escritura y paráfrasis) y un
-10 % de preguntas nuevas. El backend simulado tarda 1.5 s, para no gastar cuota de Gemini al medir.
+10 % de preguntas nuevas. El backend simulado tarda 1.5 s, para no gastar cuota del LLM al medir.
 
 ## Estructura
 
@@ -147,7 +150,7 @@ app/
   middleware.py   intercepción ASGI, normalización, single-flight
   cache.py        índice vectorial Redis, búsqueda KNN, guard de entidades, invalidación
   embeddings.py   embeddings locales (fastembed / ONNX)
-  llm.py          backend Gemini y backend simulado
+  llm.py          backends Grok (xAI Responses API), Gemini y simulado
   stats.py        métricas en Redis y Prometheus
   main.py         app FastAPI
   static/         página de demo

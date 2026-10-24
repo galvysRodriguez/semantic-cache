@@ -57,6 +57,7 @@ def make_client(redis):
             index_name=f"test_idx_{suffix}",
             key_prefix=f"test_{suffix}:",
             gemini_api_key=None,
+            xai_api_key=None,
             **overrides,
         )
         llm = llm or FakeLLM()

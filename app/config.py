@@ -7,7 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Configuración leída de variables de entorno (prefijo SEMCACHE_) o de .env."""
 
-    model_config = SettingsConfigDict(env_prefix="SEMCACHE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="SEMCACHE_", env_file=".env", extra="ignore", populate_by_name=True
+    )
 
     redis_url: str = "redis://localhost:6379/0"
     index_name: str = "semcache_idx"
@@ -32,14 +34,21 @@ class Settings(BaseSettings):
     # Cuánto espera una petición duplicada a que termine la que está en vuelo.
     inflight_wait_ms: int = 30_000
 
-    # LLM: sin API key se usa un backend simulado (demo, tests y CI sin coste).
+    # LLM: sin ninguna API key se usa un backend simulado (demo, tests y CI sin coste).
     gemini_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "SEMCACHE_GEMINI_API_KEY")
     )
     gemini_model: str = "gemini-2.5-flash"
+    # Grok (xAI) tiene prioridad sobre Gemini si están las dos claves.
+    xai_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("XAI_API_KEY", "SEMCACHE_XAI_API_KEY")
+    )
+    xai_model: str = "grok-4.3"
+    xai_base_url: str = "https://api.x.ai/v1"
     system_prompt: str = "Responde de forma breve y precisa, en el idioma de la pregunta."
-    # Precio en USD por millón de tokens, para estimar el ahorro. Revisa la tarifa vigente.
-    price_input_per_mtok: float = 0.30
+    # USD por millón de tokens, para estimar el ahorro. Por defecto la tarifa de grok-4.3
+    # (oct. 2026); para gemini-2.5-flash usa 0.30 / 2.50. Revisa la tarifa vigente.
+    price_input_per_mtok: float = 1.25
     price_output_per_mtok: float = 2.50
     simulated_latency_s: float = 1.5
 

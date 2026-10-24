@@ -18,7 +18,7 @@ services:
       - "8000:8000"
     environment:
       SEMCACHE_REDIS_URL: redis://redis:6379/0
-    # GEMINI_API_KEY y demás ajustes; sin .env la app arranca con el LLM simulado.
+    # XAI_API_KEY (Grok) y demás ajustes; sin .env la app arranca con el LLM simulado.
     env_file:
       - path: .env
         required: false

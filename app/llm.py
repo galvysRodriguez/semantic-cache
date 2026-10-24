@@ -2,6 +2,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
+
 from app.config import Settings
 
 
@@ -56,6 +58,55 @@ class GeminiBackend:
         )
 
 
+class GrokBackend:
+    """xAI Responses API (POST /v1/responses) vía httpx, sin SDK adicional."""
+
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+        self._client = httpx.AsyncClient(
+            base_url=settings.xai_base_url,
+            headers={"Authorization": f"Bearer {settings.xai_api_key}"},
+            timeout=httpx.Timeout(60.0, connect=5.0),
+            transport=transport,
+        )
+        self._settings = settings
+        self.name = settings.xai_model
+
+    async def generate(self, prompt: str) -> LLMResult:
+        resp = await self._client.post(
+            "/responses",
+            json={
+                "model": self.name,
+                "input": [
+                    {"role": "system", "content": self._settings.system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "store": False,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        answer = "".join(
+            part.get("text", "")
+            for item in data.get("output", [])
+            if item.get("type") == "message"
+            for part in item.get("content", [])
+            if part.get("type") == "output_text"
+        )
+        usage = data.get("usage") or {}
+        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+        output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+        # Los tokens de razonamiento se facturan como salida; según la respuesta pueden venir
+        # dentro de output_tokens o solo en total_tokens, así que se toma el mayor.
+        output_tokens = max(output_tokens, usage.get("total_tokens", 0) - input_tokens)
+        return LLMResult(
+            answer=answer,
+            model=data.get("model", self.name),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=_cost(self._settings, input_tokens, output_tokens),
+        )
+
+
 class SimulatedBackend:
     """Sustituto sin red: misma interfaz y latencia configurable."""
 
@@ -66,7 +117,7 @@ class SimulatedBackend:
 
     async def generate(self, prompt: str) -> LLMResult:
         await asyncio.sleep(self._settings.simulated_latency_s)
-        answer = f"Respuesta simulada para: {prompt!r}. Configura GEMINI_API_KEY para usar Gemini."
+        answer = f"Respuesta simulada para: {prompt!r}. Configura XAI_API_KEY para usar Grok."
         # ~4 caracteres por token: suficiente para que las métricas de ahorro tengan sentido.
         input_tokens, output_tokens = len(prompt) // 4 + 1, len(answer) // 4 + 1
         return LLMResult(
@@ -79,4 +130,8 @@ class SimulatedBackend:
 
 
 def build_backend(settings: Settings) -> LLMBackend:
-    return GeminiBackend(settings) if settings.gemini_api_key else SimulatedBackend(settings)
+    if settings.xai_api_key:
+        return GrokBackend(settings)
+    if settings.gemini_api_key:
+        return GeminiBackend(settings)
+    return SimulatedBackend(settings)
