@@ -8,7 +8,7 @@ POST /ask {"query": "..."}
         │
         ▼
 SemanticCacheMiddleware
-  1. normaliza la consulta
+  1. normaliza la consulta (minúsculas, sin tildes ni puntuación)
   2. ¿coincidencia exacta? ── HMGET por clave sha256 ──► HIT (<1 ms)
   3. embedding (fastembed/ONNX, 384 dims)
   4. KNN 1 en índice HNSW COSINE (Redis 8) ── sim ≥ 0.95 ──► HIT (~15-50 ms)
@@ -71,6 +71,8 @@ app.add_middleware(SemanticCacheMiddleware, cache=cache, embedder=embedder,
 - **Separado por endpoint**: un campo TAG `scope` (hash de método + ruta) evita que `/ask` y
   `/chat` compartan respuestas.
 - **Tolerante a fallos**: si Redis cae, el middleware deja pasar la petición al endpoint.
+- **Normalización antes del embedding**: el modelo es sensible a mayúsculas y tildes
+  ("Francia" vs "francia": 0.88 → 0.97 normalizado). Ver `tests/test_real_similarity.py`.
 - **Solo se cachean las respuestas 2xx.**
 - **El embedding corre en un threadpool** para no bloquear el event loop.
 

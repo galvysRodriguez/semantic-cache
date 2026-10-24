@@ -29,7 +29,7 @@ class FakeEmbedder:
 VECTORS = {
     "capital de francia": [1, 0, 0, 0],
     "cual es la capital de francia": [1, 0.1, 0, 0],   # coseno ≈ 0.995 -> HIT
-    "capital francesa?": [1, 0.5, 0, 0],               # coseno ≈ 0.894 -> MISS
+    "capital francesa": [1, 0.5, 0, 0],                # coseno ≈ 0.894 -> MISS
     "receta de paella": [0, 0, 1, 0],                  # ortogonal -> MISS
 }
 
