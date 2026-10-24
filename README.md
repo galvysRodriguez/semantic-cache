@@ -5,9 +5,9 @@
 ![Redis](https://img.shields.io/badge/Redis_8-vector_search-DC382D)
 ![LLM](https://img.shields.io/badge/LLM-Groq_%7C_Grok_%7C_Gemini-F55036)
 
-Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Groq por defecto; también Grok de xAI o Gemini) y, si ya se respondió
-una **semánticamente equivalente**, devuelve la respuesta guardada en Redis en milisegundos en lugar
-de volver a pagar la llamada.
+Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Groq por defecto; también Grok
+de xAI o Gemini) y, si ya se respondió una **semánticamente equivalente**, devuelve la respuesta
+guardada en Redis en milisegundos en lugar de volver a pagar la llamada.
 
 ![Demo](docs/demo.gif)
 
@@ -19,7 +19,7 @@ de volver a pagar la llamada.
 | Peticiones que llegan al LLM | 100 % | **10 %** |
 
 Con Groq real (`openai/gpt-oss-20b`, uno de los LLM más rápidos), un MISS tarda ~500 ms y un HIT
-14-28 ms: **~27× más rápido**. La prueba de carga usa un backend simulado de 1.5 s, más parecido
+15-40 ms: **entre 15 y 30 veces más rápido**. La prueba de carga usa un backend simulado de 1.5 s, más parecido
 a un LLM grande, para no gastar cuota.
 
 ## Cómo funciona
@@ -84,7 +84,12 @@ HIT de más devuelve una respuesta incorrecta. Los tests marcan estos casos como
 nueva a la vez, sin protección se hacen 10 llamadas al LLM. Un lock `SET NX PX` en Redis deja pasar
 a una sola petición y el resto espera su respuesta. Si esa petición falla, las que esperan llaman
 ellas mismas al LLM en vez de quedarse colgadas.
-→ `test_concurrent_identical_requests_call_backend_once`
+
+La primera versión tenía una carrera: una petición podía no encontrar nada en caché y, justo después,
+tomar el lock que la anterior acababa de soltar tras guardar su respuesta, con lo que llamaba otra
+vez al LLM. Se arregla con una doble comprobación: tras tomar el lock, se vuelve a mirar la caché.
+→ `test_concurrent_identical_requests_call_backend_once`,
+`test_leader_finishing_before_lock_is_not_called_twice`
 
 **5. El coste del caché: el embedding en CPU.** Bajo carga, las preguntas nuevas tardan algo más
 con caché (p50 1.7 s frente a 1.5 s) porque cada una paga un embedding y compite por CPU. Si el
@@ -120,6 +125,9 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 | `XAI_API_KEY` | – | Grok de xAI (claves `xai-…`) |
 | `SEMCACHE_XAI_MODEL` | `grok-4.3` | |
 | `GEMINI_API_KEY` | – | sin ninguna clave se usa el backend simulado |
+
+Solo Groq está probado contra su API real. Grok y Gemini están implementados según su documentación
+y cubiertos con tests sin red, pero no se han ejecutado con una clave real.
 | `SEMCACHE_GEMINI_MODEL` | `gemini-2.5-flash` | |
 | `SEMCACHE_SIMILARITY_THRESHOLD` | `0.95` | |
 | `SEMCACHE_TTL_SECONDS` | `3600` | 0 = sin expiración |
@@ -143,11 +151,29 @@ docker compose up -d redis
 Prueba de carga (los resultados están en `loadtest/results/`):
 
 ```bash
-locust -f loadtest/locustfile.py --host http://localhost:8000 --headless -u 50 -r 10 -t 60s
+.venv/bin/locust -f loadtest/locustfile.py --host http://localhost:8000 --headless -u 50 -r 10 -t 60s
 ```
 
 El tráfico simulado es un 90 % de preguntas conocidas (con variantes de escritura y paráfrasis) y un
 10 % de preguntas nuevas. El backend simulado tarda 1.5 s, para no gastar cuota del LLM al medir.
+
+Volver a grabar el GIF y la captura de `docs/` (con la app en marcha):
+
+```bash
+pip install playwright pillow && playwright install chromium
+python scripts/record_demo.py
+```
+
+## Problemas comunes
+
+| Síntoma | Causa y solución |
+|---|---|
+| `unknown command 'FT.CREATE'` o `FT._LIST` | Tu Redis no trae búsqueda vectorial. Usa Redis 8 o Redis Stack, por ejemplo con `docker compose up -d redis`; Valkey o un `redis-server` normal no sirven. |
+| `Cannot create index on db != 0` | Los índices solo funcionan en la base de datos 0: usa `redis://…:6379/0`. |
+| Groq responde `403 Access denied. Please check your network settings` | Groq no da servicio en tu región. Con una VPN funciona desde el host. |
+| …solo dentro del contenedor, con VPN activa | La red rootless de podman sale por la interfaz física y se salta la VPN. Crea un `compose.override.yaml` local con `network_mode: host` para el servicio `app` y `SEMCACHE_REDIS_URL=redis://localhost:6379/0`. |
+| xAI responde `Incorrect API key provided` con una clave `gsk_…` | Es una clave de **Groq** (groq.com), no de **Grok** (x.ai): ponla en `GROQ_API_KEY`. |
+| `/health` muestra `"llm": "simulated"` | No hay ninguna clave en `.env`, o la app no se reinició tras añadirla: `docker compose up -d --force-recreate app`. |
 
 ## Estructura
 
