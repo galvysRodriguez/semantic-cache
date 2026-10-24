@@ -80,7 +80,7 @@ class SemanticCacheMiddleware:
             if hit is None:
                 outcome = "hit_semantic"
                 vector = await to_thread.run_sync(self.embedder.embed, query)
-                hit = await self.cache.lookup(cache_scope, vector)
+                hit = await self.cache.lookup(cache_scope, vector, query)
             if hit is None:
                 leader = await self.cache.acquire_inflight(
                     cache_scope, query, self.settings.inflight_wait_ms

@@ -28,6 +28,10 @@ VECTORS = {
     "cual es la capital de francia": [1, 0.1, 0, 0],  # coseno ≈ 0.995 -> HIT
     "capital francesa": [1, 0.5, 0, 0],  # coseno ≈ 0.894 -> MISS
     "receta de paella": [0, 0, 1, 0],  # ortogonal -> MISS
+    # Casi idénticos para el modelo, pero con distinto ID: el guard de entidades decide.
+    "estado del pedido 10023": [0, 1, 0, 0],
+    "estado del pedido 10024": [0, 1, 0.01, 0],
+    "como va el pedido 10023": [0, 1, 0.05, 0],
 }
 
 
@@ -88,6 +92,30 @@ async def test_non_cached_routes_pass_through(client):
     r = await client.get("/health")
     assert r.status_code == 200
     assert "x-cache" not in r.headers
+
+
+# --- guard de entidades (números / IDs) ----------------------------------------------
+
+
+async def test_different_ids_never_share_an_answer(client):
+    await ask(client, "Estado del pedido 10023")
+    r = await ask(client, "Estado del pedido 10024")
+    assert r.headers["x-cache"] == "MISS"
+    assert r.json()["answer"] == "answer:Estado del pedido 10024"
+
+
+async def test_same_id_reworded_still_hits(client):
+    await ask(client, "Estado del pedido 10023")
+    r = await ask(client, "¿Cómo va el pedido 10023?")
+    assert r.headers["x-cache"] == "HIT"
+
+
+async def test_guard_skips_to_next_valid_neighbour(client):
+    await ask(client, "Estado del pedido 10024")  # vecino más cercano, pero otro ID
+    await ask(client, "Estado del pedido 10023")
+    r = await ask(client, "¿Cómo va el pedido 10023?")
+    assert r.headers["x-cache"] == "HIT"
+    assert r.headers["x-cache-matched-query"] == "estado del pedido 10023"
 
 
 # --- tenants -------------------------------------------------------------------------

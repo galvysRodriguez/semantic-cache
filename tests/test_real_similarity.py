@@ -55,6 +55,16 @@ def _id(pair):
     return f"{pair[0]} | {pair[1]}"
 
 
+# Distintas solo por un número o ID: el modelo las ve casi iguales, así que el middleware
+# exige que los tokens con dígitos coincidan antes de aceptar un HIT semántico.
+DIFFERENT_BY_NUMBER = [
+    ("Estado del pedido 10023", "Estado del pedido 10024"),
+    ("¿Cuánto es 15 por 3?", "¿Cuánto es 16 por 3?"),
+    ("¿Cuál es la raíz cuadrada de 1234?", "¿Cuál es la raíz cuadrada de 5678?"),
+    ("¿Qué pasó en 1945?", "¿Qué pasó en 1989?"),
+]
+
+
 # --- normalización -------------------------------------------------------------------
 
 
@@ -122,6 +132,19 @@ async def test_end_to_end_hit(client, a, b):
 
 @pytest.mark.parametrize("a, b", DIFFERENT, ids=[_id(p) for p in DIFFERENT])
 async def test_end_to_end_no_false_hit(client, a, b):
+    await client.post("/ask", json={"query": a})
+    r = await client.post("/ask", json={"query": b})
+    assert r.headers["x-cache"] == "MISS"
+    assert client.llm.calls == 2
+
+
+def test_model_alone_confuses_order_ids(embedder):
+    """Documenta por qué existe el guard: sin él, esto sería un HIT con la respuesta ajena."""
+    assert similarity(embedder, "Estado del pedido 10023", "Estado del pedido 10024") >= THRESHOLD
+
+
+@pytest.mark.parametrize("a, b", DIFFERENT_BY_NUMBER, ids=[_id(p) for p in DIFFERENT_BY_NUMBER])
+async def test_end_to_end_numbers_never_hit(client, a, b):
     await client.post("/ask", json={"query": a})
     r = await client.post("/ask", json={"query": b})
     assert r.headers["x-cache"] == "MISS"

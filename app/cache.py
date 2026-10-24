@@ -88,9 +88,11 @@ class SemanticCache:
             matched_query=query,
         )
 
-    async def lookup(self, scope: str, vector: np.ndarray) -> CachedResponse | None:
+    async def lookup(
+        self, scope: str, vector: np.ndarray, query: str, k: int = 3
+    ) -> CachedResponse | None:
         q = (
-            Query(f"(@scope:{{{scope}}})=>[KNN 1 @embedding $vec AS distance]")
+            Query(f"(@scope:{{{scope}}})=>[KNN {k} @embedding $vec AS distance]")
             .sort_by("distance")
             .return_fields("distance", "query", "status", "headers", "body")
             .dialect(2)
@@ -98,19 +100,22 @@ class SemanticCache:
         res = await self.redis.ft(self.index_name).search(
             q, query_params={"vec": vector.astype(np.float32).tobytes()}
         )
-        if not res.docs:
-            return None
-        doc = res.docs[0]
-        similarity = 1.0 - float(doc.distance)
-        if similarity < self.threshold:
-            return None
-        return CachedResponse(
-            status=int(doc.status),
-            headers=[tuple(h) for h in json.loads(doc.headers)],
-            body=doc.body.encode("latin-1"),
-            similarity=similarity,
-            matched_query=doc.query,
-        )
+        wanted = entity_tokens(query)
+        for doc in res.docs:
+            similarity = 1.0 - float(doc.distance)
+            if similarity < self.threshold:
+                break  # ordenados por distancia: el resto tampoco llega
+            # El modelo apenas distingue números: "pedido 10023" vs "pedido 10024" da 0.96.
+            if entity_tokens(doc.query) != wanted:
+                continue
+            return CachedResponse(
+                status=int(doc.status),
+                headers=[tuple(h) for h in json.loads(doc.headers)],
+                body=doc.body.encode("latin-1"),
+                similarity=similarity,
+                matched_query=doc.query,
+            )
+        return None
 
     async def store(
         self,
@@ -187,3 +192,8 @@ class SemanticCache:
 
 def _text(value: bytes | str) -> str:
     return value.decode() if isinstance(value, bytes) else value
+
+
+def entity_tokens(query: str) -> frozenset[str]:
+    """Tokens con algún dígito (IDs, cantidades, años): deben coincidir para aceptar un HIT."""
+    return frozenset(t for t in query.split() if any(c.isdigit() for c in t))
