@@ -1,9 +1,12 @@
 # Caché semántico para LLM · FastAPI + Redis
 
+**Español** · [English](README.en.md)
+
 [![CI](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12+-3776AB)
 ![Redis](https://img.shields.io/badge/Redis_8-vector_search-DC382D)
 ![LLM](https://img.shields.io/badge/LLM-Groq_%7C_Grok_%7C_Gemini-F55036)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Groq por defecto; también Grok
 de xAI o Gemini) y, si ya se respondió una **semánticamente equivalente**, devuelve la respuesta
@@ -190,3 +193,7 @@ tests/            unitarios (embeddings falsos) e integración (modelo real y Re
 loadtest/         escenario de Locust y resultados
 scripts/          benchmark rápido y grabación del GIF
 ```
+
+## Licencia
+
+[MIT](LICENSE)
