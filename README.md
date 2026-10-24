@@ -60,8 +60,9 @@ Sustituye `expensive_backend` en `app/main.py` por tu llamada real (LLM, RAG…)
 middleware a tu propia app:
 
 ```python
-app.add_middleware(SemanticCacheMiddleware, cache=cache, embedder=embedder,
-                   paths=["/chat"], query_field="prompt")
+app.add_middleware(
+    SemanticCacheMiddleware, cache=cache, embedder=embedder, paths=["/chat"], query_field="prompt"
+)
 ```
 
 ## Decisiones de diseño

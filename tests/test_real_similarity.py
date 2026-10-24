@@ -2,16 +2,11 @@
 
 Cargan el modelo una vez por módulo (~2 s). Los de integración necesitan Redis en localhost:6379.
 """
-import uuid
 
-import httpx
 import pytest
-from redis.asyncio import Redis
 
-import app.main as main_mod
 from app.config import Settings
 from app.embeddings import FastEmbedEmbedder
-from app.main import create_app
 from app.middleware import normalize_query
 
 THRESHOLD = 0.95
@@ -62,18 +57,23 @@ def _id(pair):
 
 # --- normalización -------------------------------------------------------------------
 
-@pytest.mark.parametrize("raw, expected", [
-    ("¿Cuál es la capital de Francia?", "cual es la capital de francia"),
-    ("  Dime   la CAPITAL de Francia!! ", "dime la capital de francia"),
-    ("¿Cuántos habitantes tiene España?", "cuantos habitantes tiene espana"),
-    ("¡Hola, mundo!", "hola mundo"),
-    ("?¿!", ""),
-])
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("¿Cuál es la capital de Francia?", "cual es la capital de francia"),
+        ("  Dime   la CAPITAL de Francia!! ", "dime la capital de francia"),
+        ("¿Cuántos habitantes tiene España?", "cuantos habitantes tiene espana"),
+        ("¡Hola, mundo!", "hola mundo"),
+        ("?¿!", ""),
+    ],
+)
 def test_normalize_query(raw, expected):
     assert normalize_query(raw) == expected
 
 
 # --- similitud con el modelo real -----------------------------------------------------
+
 
 @pytest.mark.parametrize("a, b", SAME, ids=[_id(p) for p in SAME])
 def test_same_intent_is_above_threshold(embedder, a, b):
@@ -88,8 +88,9 @@ def test_different_questions_stay_below_threshold(embedder, a, b):
 
 
 @pytest.mark.xfail(strict=True, reason="límite conocido del modelo MiniLM con umbral 0.95")
-@pytest.mark.parametrize("a, b", PARAPHRASE_BELOW_THRESHOLD,
-                         ids=[_id(p) for p in PARAPHRASE_BELOW_THRESHOLD])
+@pytest.mark.parametrize(
+    "a, b", PARAPHRASE_BELOW_THRESHOLD, ids=[_id(p) for p in PARAPHRASE_BELOW_THRESHOLD]
+)
 def test_reworded_paraphrase_known_limit(embedder, a, b):
     assert similarity(embedder, a, b) >= THRESHOLD
 
@@ -102,35 +103,11 @@ def test_normalization_improves_case_variants(embedder):
 
 # --- integración: middleware + Redis + modelo real -------------------------------------
 
+
 @pytest.fixture
-async def client(embedder):
-    redis = Redis.from_url("redis://localhost:6379/0")
-    try:
-        await redis.ping()
-    except Exception:
-        pytest.skip("Redis no disponible en localhost:6379")
-
-    suffix = uuid.uuid4().hex[:8]
-    settings = Settings(index_name=f"test_real_{suffix}", key_prefix=f"test_real_{suffix}:",
-                        similarity_threshold=THRESHOLD)
-    app = create_app(settings, embedder=embedder, redis=redis)
-    calls = {"n": 0}
-
-    async def fake_backend(query: str) -> str:
-        calls["n"] += 1
-        return f"answer:{query}"
-
-    original = main_mod.expensive_backend
-    main_mod.expensive_backend = fake_backend
-    await app.state.cache.ensure_index()
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
-                                 base_url="http://test") as c:
-        c.backend_calls = calls
+async def client(make_client, embedder):
+    async with make_client(embedder, similarity_threshold=THRESHOLD) as c:
         yield c
-    main_mod.expensive_backend = original
-    await app.state.cache.clear()
-    await redis.ft(settings.index_name).dropindex()
-    await redis.aclose()
 
 
 @pytest.mark.parametrize("a, b", SAME, ids=[_id(p) for p in SAME])
@@ -140,7 +117,7 @@ async def test_end_to_end_hit(client, a, b):
     r2 = await client.post("/ask", json={"query": b})
     assert r2.headers["x-cache"] == "HIT", "la segunda pregunta debería salir de caché"
     assert r2.json() == r1.json()
-    assert client.backend_calls["n"] == 1
+    assert client.llm.calls == 1
 
 
 @pytest.mark.parametrize("a, b", DIFFERENT, ids=[_id(p) for p in DIFFERENT])
@@ -148,4 +125,4 @@ async def test_end_to_end_no_false_hit(client, a, b):
     await client.post("/ask", json={"query": a})
     r = await client.post("/ask", json={"query": b})
     assert r.headers["x-cache"] == "MISS"
-    assert client.backend_calls["n"] == 2
+    assert client.llm.calls == 2

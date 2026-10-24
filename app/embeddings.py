@@ -18,7 +18,7 @@ def _normalize(vec: np.ndarray) -> np.ndarray:
 
 
 class FastEmbedEmbedder:
-    """Embeddings locales vía ONNX (fastembed): sin GPU ni llamadas de red tras la descarga inicial."""
+    """Embeddings locales vía ONNX (fastembed): sin GPU ni red tras la descarga inicial."""
 
     def __init__(self, model_name: str):
         from fastembed import TextEmbedding

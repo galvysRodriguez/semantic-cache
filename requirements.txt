@@ -4,3 +4,5 @@ redis>=6.0
 pydantic-settings>=2.4
 fastembed>=0.5
 numpy>=2.0
+google-genai>=1.0
+prometheus-client>=0.20

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semantic Cache · Demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #646b78; --border: #e3e6eb;
+    --accent: #3b5bdb; --hit: #2b8a3e; --hit-bg: #e6f4ea; --miss: #c2410c; --miss-bg: #fdeee4;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a21; --text: #e8eaee; --muted: #9098a6; --border: #262a33;
+      --accent: #7c95ff; --hit: #5cd07a; --hit-bg: #15301e; --miss: #ff9a5c; --miss-bg: #3a2216;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 48px; }
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0 0 24px; color: var(--muted); }
+  header code { font-family: var(--mono); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+              margin: 0 0 12px; font-weight: 600; }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border-radius: 8px;
+          border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 8px; border: 0;
+           background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: progress; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+          background: transparent; color: var(--muted); font-weight: 500; }
+  .chip:hover { color: var(--text); border-color: var(--muted); }
+  .result { margin-top: 18px; display: none; }
+  .result.show { display: block; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 10px; }
+  .badge { font-family: var(--mono); font-weight: 700; font-size: 13px; padding: 3px 10px; border-radius: 6px; }
+  .badge.HIT { color: var(--hit); background: var(--hit-bg); }
+  .badge.MISS { color: var(--miss); background: var(--miss-bg); }
+  .latency { font-family: var(--mono); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kv { font-size: 13px; color: var(--muted); }
+  .kv b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+  .answer { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px; margin: 0; max-height: 260px; overflow: auto; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.q { max-width: 0; width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history { margin-top: 20px; }
+  .err { color: var(--miss); margin-top: 12px; }
+  .foot { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .foot a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Caché semántico para LLM</h1>
+    <p>FastAPI + Redis vector search · responde desde caché si la similitud de coseno ≥ <code id="thr">0.95</code> · LLM: <code id="llm">…</code></p>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Pregunta</h2>
+      <form id="f">
+        <input id="q" autocomplete="off" placeholder="Escribe una pregunta…" value="¿Cuál es la capital de Francia?">
+        <button id="b">Preguntar</button>
+      </form>
+      <div class="chips" id="chips"></div>
+
+      <div class="result" id="res">
+        <div class="meta">
+          <span class="badge" id="badge"></span>
+          <span class="latency" id="lat"></span>
+          <span class="kv" id="sim"></span>
+          <span class="kv" id="match"></span>
+          <span class="kv" id="tok"></span>
+        </div>
+        <pre class="answer" id="ans"></pre>
+      </div>
+      <div class="err" id="err"></div>
+
+      <div class="history">
+        <h2>Historial</h2>
+        <table>
+          <thead><tr><th>Consulta</th><th>Caché</th><th class="num">Sim.</th><th class="num">ms</th></tr></thead>
+          <tbody id="hist"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>Métricas</h2>
+      <div class="stats">
+        <div class="stat"><div class="v" id="s-rate">–</div><div class="l">tasa de aciertos</div></div>
+        <div class="stat"><div class="v" id="s-req">–</div><div class="l">peticiones</div></div>
+        <div class="stat"><div class="v" id="s-hit">–</div><div class="l">latencia media HIT</div></div>
+        <div class="stat"><div class="v" id="s-miss">–</div><div class="l">latencia media MISS</div></div>
+        <div class="stat"><div class="v" id="s-speed">–</div><div class="l">más rápido en HIT</div></div>
+        <div class="stat"><div class="v" id="s-calls">–</div><div class="l">llamadas al LLM evitadas</div></div>
+        <div class="stat"><div class="v" id="s-tok">–</div><div class="l">tokens ahorrados</div></div>
+        <div class="stat"><div class="v" id="s-cost">–</div><div class="l">coste ahorrado (USD)</div></div>
+      </div>
+      <p class="foot">
+        <a href="#" id="reset">Vaciar caché y métricas</a> · <a href="/docs">API</a> · <a href="/metrics">Prometheus</a>
+      </p>
+    </aside>
+  </div>
+</main>
+
+<script>
+const EXAMPLES = [
+  "¿Cuál es la capital de Francia?",
+  "dime la capital de francia",
+  "¿Qué ciudad es la capital de Francia?",
+  "¿Cuál es la capital de Suecia?",
+  "¿Cómo se prepara una paella valenciana?",
+];
+const $ = (id) => document.getElementById(id);
+const fmtMs = (v) => v == null ? "–" : v < 10 ? v.toFixed(1) + " ms" : Math.round(v) + " ms";
+
+for (const ex of EXAMPLES) {
+  const c = document.createElement("button");
+  c.type = "button"; c.className = "chip"; c.textContent = ex;
+  c.onclick = () => { $("q").value = ex; ask(); };
+  $("chips").append(c);
+}
+
+async function ask() {
+  const query = $("q").value.trim();
+  if (!query) return;
+  $("b").disabled = true; $("err").textContent = "";
+  const t0 = performance.now();
+  try {
+    const r = await fetch("/ask", { method: "POST", headers: { "content-type": "application/json" },
+                                    body: JSON.stringify({ query }) });
+    const ms = performance.now() - t0;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : r.statusText);
+    const h = (k) => r.headers.get(k);
+    const cache = h("x-cache") || "–";
+    const sim = h("x-cache-similarity");
+    $("badge").textContent = cache; $("badge").className = "badge " + cache;
+    $("lat").textContent = fmtMs(ms);
+    $("sim").innerHTML = sim ? `similitud <b>${sim}</b>` : "";
+    $("match").innerHTML = cache === "HIT" ? `coincide con <b></b>` : "";
+    if (cache === "HIT") $("match").querySelector("b").textContent = `"${h("x-cache-matched-query")}"`;
+    $("tok").innerHTML = cache === "HIT"
+      ? `ahorró <b>${h("x-cache-saved-tokens")}</b> tokens`
+      : `gastó <b>${data.usage.input_tokens + data.usage.output_tokens}</b> tokens`;
+    $("ans").textContent = data.answer;
+    $("res").classList.add("show");
+    addHistory(query, cache, sim, ms);
+  } catch (e) {
+    $("err").textContent = "Error: " + e.message;
+  } finally {
+    $("b").disabled = false;
+    refreshStats();
+  }
+}
+
+function addHistory(query, cache, sim, ms) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="q"></td><td><span class="badge ${cache}">${cache}</span></td>
+                  <td class="num">${sim ?? "–"}</td><td class="num">${ms.toFixed(0)}</td>`;
+  tr.querySelector(".q").textContent = query; tr.querySelector(".q").title = query;
+  $("hist").prepend(tr);
+}
+
+async function refreshStats() {
+  try {
+    const s = await (await fetch("/stats")).json();
+    $("thr").textContent = s.similarity_threshold;
+    $("llm").textContent = s.llm;
+    $("s-rate").textContent = (s.hit_rate * 100).toFixed(0) + "%";
+    $("s-req").textContent = s.requests;
+    $("s-hit").textContent = fmtMs(s.avg_latency_ms.hit);
+    $("s-miss").textContent = fmtMs(s.avg_latency_ms.miss);
+    $("s-speed").textContent = s.speedup ? "×" + Math.round(s.speedup) : "–";
+    $("s-calls").textContent = s.llm_calls_saved;
+    $("s-tok").textContent = s.tokens_saved.toLocaleString("es");
+    $("s-cost").textContent = "$" + s.cost_saved_usd.toFixed(5);
+  } catch { /* el panel de métricas es secundario */ }
+}
+
+$("f").onsubmit = (e) => { e.preventDefault(); ask(); };
+$("reset").onclick = async (e) => {
+  e.preventDefault();
+  await fetch("/cache", { method: "DELETE" });
+  await fetch("/stats", { method: "DELETE" });
+  $("hist").innerHTML = ""; $("res").classList.remove("show");
+  refreshStats();
+};
+refreshStats();
+</script>
+</body>
+</html>

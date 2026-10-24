@@ -1,0 +1,20 @@
+[project]
+name = "semantic-cache"
+version = "0.1.0"
+description = "Semantic cache middleware for FastAPI backed by Redis vector search"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # tildes y signos ¿¡ en textos en español
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["app"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
