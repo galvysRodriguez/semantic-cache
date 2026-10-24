@@ -1,0 +1,11 @@
+services:
+  redis:
+    # Redis 8 incluye el motor de consultas (búsqueda vectorial HNSW) de serie.
+    image: docker.io/redis:8.2
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

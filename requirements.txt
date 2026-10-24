@@ -1,0 +1,6 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+redis>=6.0
+pydantic-settings>=2.4
+fastembed>=0.5
+numpy>=2.0
