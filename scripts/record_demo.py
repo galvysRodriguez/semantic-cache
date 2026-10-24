@@ -46,6 +46,8 @@ def main() -> None:
                 page.fill("#q", query[: i + 3])
                 snap(60)
             page.click("#b")
+            # Las capturas consumen CPU y competirían con el embedding: un HIT termina antes.
+            page.wait_for_timeout(150)
             # Captura mientras espera: en un MISS se ve el botón ocupado durante la llamada al LLM.
             start = time.monotonic()
             while page.is_disabled("#b") and time.monotonic() - start < 30:

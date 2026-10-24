@@ -3,9 +3,9 @@
 [![CI](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/galvysRodriguez/semantic-cache/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12+-3776AB)
 ![Redis](https://img.shields.io/badge/Redis_8-vector_search-DC382D)
-![LLM](https://img.shields.io/badge/LLM-Grok_%7C_Gemini-000000)
+![LLM](https://img.shields.io/badge/LLM-Groq_%7C_Grok_%7C_Gemini-F55036)
 
-Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Grok de xAI, o Gemini) y, si ya se respondió
+Middleware para FastAPI que intercepta preguntas dirigidas a un LLM (Groq por defecto; también Grok de xAI o Gemini) y, si ya se respondió
 una **semánticamente equivalente**, devuelve la respuesta guardada en Redis en milisegundos en lugar
 de volver a pagar la llamada.
 
@@ -17,6 +17,10 @@ de volver a pagar la llamada.
 | Latencia p50 | 1500 ms | **45 ms** |
 | Latencia p50 preguntas repetidas o parafraseadas | 1500 ms | **37 ms** |
 | Peticiones que llegan al LLM | 100 % | **10 %** |
+
+Con Groq real (`openai/gpt-oss-20b`, uno de los LLM más rápidos), un MISS tarda ~500 ms y un HIT
+14-28 ms: **~27× más rápido**. La prueba de carga usa un backend simulado de 1.5 s, más parecido
+a un LLM grande, para no gastar cuota.
 
 ## Cómo funciona
 
@@ -31,7 +35,7 @@ SemanticCacheMiddleware (ASGI puro)
   4. KNN 3 en índice HNSW COSINE de Redis
        └─ similitud ≥ 0.95 y mismos números/IDs ─────────────────────► HIT  (~15-30 ms)
   5. ¿la misma consulta ya está en vuelo? ── espera su respuesta ─────► HIT  (single-flight)
-  6. si no: llama a Grok, guarda la respuesta 2xx con TTL ────────────► MISS (~1-3 s)
+  6. si no: llama al LLM, guarda la respuesta 2xx con TTL ───────────► MISS (~0.5-3 s)
 ```
 
 Cada respuesta indica qué pasó: `X-Cache: HIT|MISS`, `X-Cache-Similarity`, `X-Cache-Matched-Query`,
@@ -40,7 +44,7 @@ Cada respuesta indica qué pasó: `X-Cache: HIT|MISS`, `X-Cache-Similarity`, `X-
 ## Puesta en marcha
 
 ```bash
-cp .env.example .env            # añade XAI_API_KEY (sin ella se usa un LLM simulado)
+cp .env.example .env            # añade GROQ_API_KEY (sin clave se usa un LLM simulado)
 docker compose up --build       # o: podman compose up --build
 ```
 
@@ -111,9 +115,11 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 
 | Variable | Por defecto | |
 |---|---|---|
-| `XAI_API_KEY` | – | Grok (xAI); tiene prioridad sobre Gemini |
+| `GROQ_API_KEY` | – | Groq (claves `gsk_…`); se usa el primer proveedor con clave |
+| `SEMCACHE_GROQ_MODEL` | `openai/gpt-oss-20b` | |
+| `XAI_API_KEY` | – | Grok de xAI (claves `xai-…`) |
 | `SEMCACHE_XAI_MODEL` | `grok-4.3` | |
-| `GEMINI_API_KEY` | – | alternativa; sin ninguna clave se usa el backend simulado |
+| `GEMINI_API_KEY` | – | sin ninguna clave se usa el backend simulado |
 | `SEMCACHE_GEMINI_MODEL` | `gemini-2.5-flash` | |
 | `SEMCACHE_SIMILARITY_THRESHOLD` | `0.95` | |
 | `SEMCACHE_TTL_SECONDS` | `3600` | 0 = sin expiración |
@@ -121,7 +127,7 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 | `SEMCACHE_CACHED_PATHS` | `["/ask"]` | rutas interceptadas |
 | `SEMCACHE_TENANT_HEADER` | `x-tenant-id` | |
 | `SEMCACHE_ENABLED` | `true` | `false` para medir la línea base |
-| `SEMCACHE_PRICE_INPUT_PER_MTOK` / `_OUTPUT_` | `1.25` / `2.50` | USD por millón de tokens (tarifa de grok-4.3), para estimar el ahorro |
+| `SEMCACHE_PRICE_INPUT_PER_MTOK` / `_OUTPUT_` | tarifa del modelo por defecto | USD por millón de tokens, para estimar el ahorro; defínelo si cambias de modelo |
 
 ## Desarrollo
 
@@ -129,7 +135,7 @@ serían un modelo de embeddings en GPU o un servicio aparte.
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 docker compose up -d redis
 
-.venv/bin/pytest                    # 71 tests: middleware, LLM, modelo real e integración con Redis
+.venv/bin/pytest                    # 74 tests: middleware, LLM, modelo real e integración con Redis
 .venv/bin/ruff check . && .venv/bin/mypy
 .venv/bin/uvicorn app.main:create_app --factory --reload
 ```
@@ -150,7 +156,7 @@ app/
   middleware.py   intercepción ASGI, normalización, single-flight
   cache.py        índice vectorial Redis, búsqueda KNN, guard de entidades, invalidación
   embeddings.py   embeddings locales (fastembed / ONNX)
-  llm.py          backends Grok (xAI Responses API), Gemini y simulado
+  llm.py          backends Groq, Grok (xAI), Gemini y simulado
   stats.py        métricas en Redis y Prometheus
   main.py         app FastAPI
   static/         página de demo

@@ -53,11 +53,13 @@ def make_client(redis):
     async def factory(embedder, llm=None, **overrides):
         suffix = uuid.uuid4().hex[:8]
         settings = Settings(
+            _env_file=None,  # los tests no leen el .env real (ni sus claves)
             redis_url=REDIS_URL,
             index_name=f"test_idx_{suffix}",
             key_prefix=f"test_{suffix}:",
-            gemini_api_key=None,
+            groq_api_key=None,
             xai_api_key=None,
+            gemini_api_key=None,
             **overrides,
         )
         llm = llm or FakeLLM()

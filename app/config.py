@@ -34,22 +34,27 @@ class Settings(BaseSettings):
     # Cuánto espera una petición duplicada a que termine la que está en vuelo.
     inflight_wait_ms: int = 30_000
 
-    # LLM: sin ninguna API key se usa un backend simulado (demo, tests y CI sin coste).
-    gemini_api_key: str | None = Field(
-        default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "SEMCACHE_GEMINI_API_KEY")
+    # LLM: se usa el primer proveedor con clave (Groq, Grok, Gemini); sin ninguna, un
+    # backend simulado (demo, tests y CI sin coste).
+    groq_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("GROQ_API_KEY", "SEMCACHE_GROQ_API_KEY")
     )
-    gemini_model: str = "gemini-2.5-flash"
-    # Grok (xAI) tiene prioridad sobre Gemini si están las dos claves.
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     xai_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("XAI_API_KEY", "SEMCACHE_XAI_API_KEY")
     )
     xai_model: str = "grok-4.3"
     xai_base_url: str = "https://api.x.ai/v1"
+    gemini_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "SEMCACHE_GEMINI_API_KEY")
+    )
+    gemini_model: str = "gemini-2.5-flash"
     system_prompt: str = "Responde de forma breve y precisa, en el idioma de la pregunta."
-    # USD por millón de tokens, para estimar el ahorro. Por defecto la tarifa de grok-4.3
-    # (oct. 2026); para gemini-2.5-flash usa 0.30 / 2.50. Revisa la tarifa vigente.
-    price_input_per_mtok: float = 1.25
-    price_output_per_mtok: float = 2.50
+    # USD por millón de tokens, para estimar el ahorro. Sin valor se usa la tarifa del modelo
+    # por defecto de cada proveedor (ver app/llm.py); defínelo si cambias de modelo.
+    price_input_per_mtok: float | None = None
+    price_output_per_mtok: float | None = None
     simulated_latency_s: float = 1.5
 
     def ttl_for(self, path: str) -> int:

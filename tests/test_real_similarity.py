@@ -10,7 +10,7 @@ from app.embeddings import FastEmbedEmbedder
 from app.middleware import normalize_query
 
 THRESHOLD = 0.95
-MODEL = Settings().embedding_model
+MODEL = Settings(_env_file=None).embedding_model
 
 # Misma intención, distinta forma de escribirla: deben dar HIT.
 SAME = [
