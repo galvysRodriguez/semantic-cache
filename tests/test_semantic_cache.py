@@ -143,6 +143,51 @@ async def test_concurrent_identical_requests_call_backend_once(make_client):
         assert stats["by_outcome"]["hit_coalesced"] == 9
 
 
+async def test_leader_finishing_before_lock_is_not_called_twice(client, monkeypatch):
+    """Ventana de carrera: el líder guarda y suelta el lock justo antes de nuestro SET NX."""
+    await ask(client, "capital de francia")
+    cache = client.app.state.cache
+    real_exact, real_lookup = cache.exact_lookup, cache.lookup
+    first = {"exact": True, "knn": True}
+
+    async def stale_exact(*args):
+        if first["exact"]:  # la primera búsqueda llega "antes" de que el líder guardara
+            first["exact"] = False
+            return None
+        return await real_exact(*args)
+
+    async def stale_lookup(*args):
+        if first["knn"]:
+            first["knn"] = False
+            return None
+        return await real_lookup(*args)
+
+    monkeypatch.setattr(cache, "exact_lookup", stale_exact)
+    monkeypatch.setattr(cache, "lookup", stale_lookup)
+    r = await ask(client, "capital de francia")
+    assert r.headers["x-cache"] == "HIT"
+    assert client.llm.calls == 1
+
+
+async def test_lock_released_when_cache_errors_after_acquiring(client, monkeypatch):
+    cache = client.app.state.cache
+    real_exact = cache.exact_lookup
+    calls = {"n": 0}
+
+    async def fails_on_recheck(*args):
+        calls["n"] += 1
+        if calls["n"] == 2:  # la doble comprobación, ya con el lock tomado
+            raise ConnectionError("redis caído")
+        return await real_exact(*args)
+
+    monkeypatch.setattr(cache, "exact_lookup", fails_on_recheck)
+    r = await ask(client, "capital de francia")
+    assert r.status_code == 200
+    assert not await cache.redis.exists(
+        cache._lock_key(cache.scope_for("POST", "/ask"), "capital de francia")
+    )
+
+
 async def test_waiters_fall_back_when_leader_fails(make_client):
     class FlakyLLM(FakeLLM):
         async def generate(self, prompt):

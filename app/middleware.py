@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import re
@@ -82,16 +83,26 @@ class SemanticCacheMiddleware:
                 vector = await to_thread.run_sync(self.embedder.embed, query)
                 hit = await self.cache.lookup(cache_scope, vector, query)
             if hit is None:
+                outcome = "hit_coalesced"
                 leader = await self.cache.acquire_inflight(
                     cache_scope, query, self.settings.inflight_wait_ms
                 )
-                if not leader:
-                    outcome = "hit_coalesced"
+                if leader:
+                    # Doble comprobación: el líder anterior pudo guardar y soltar el lock
+                    # entre nuestra búsqueda y el SET NX.
+                    hit = await self.cache.exact_lookup(cache_scope, query)
+                    if hit is not None:
+                        await self.cache.release_inflight(cache_scope, query)
+                        leader = False
+                else:
                     hit = await self.cache.wait_inflight(
                         cache_scope, query, self.settings.inflight_wait_ms / 1000
                     )
         except Exception:
             logger.exception("Semantic cache lookup failed; falling through")
+            if leader:
+                with contextlib.suppress(Exception):
+                    await self.cache.release_inflight(cache_scope, query)
             await self.app(scope, replay, send)
             await self._record("bypass", start)
             return
