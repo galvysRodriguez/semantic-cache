@@ -39,6 +39,7 @@ DIFFERENT = [
     ("¿Cómo se prepara una paella valenciana?", "¿Cómo se prepara una tortilla española?"),
     ("¿Qué hora es en Tokio?", "¿Qué hora es en Madrid?"),
     ("¿Cuál es la capital de Francia?", "¿Cómo se prepara una paella valenciana?"),
+    ("Traduce 'hola' al inglés", "Traduce 'adiós' al inglés"),  # 0.935: el caso más justo
 ]
 
 
